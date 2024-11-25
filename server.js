@@ -3,6 +3,7 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
+const moment = require('moment-timezone'); 
 
 const app = express();
 const port = 3000;
@@ -31,7 +32,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// Endpoint de login
+//  login
 app.post('/login', (req, res) => {
     const { Usuario, contraseña } = req.body;
 
@@ -54,16 +55,14 @@ app.post('/login', (req, res) => {
     });
 });
 
-// Para agregar materiales con imagen
+// agregar materiales con imagen y estado por defecto en activo (1)
 app.post('/api/materiales', upload.single('imagen'), (req, res) => {
     const { nombre, metros_disponibles, precio } = req.body;
     const imagenPath = req.file ? `/uploads/${req.file.filename}` : null;
-
     if (!nombre || metros_disponibles == null || precio == null) {
         return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
     }
-
-    const sql = 'INSERT INTO Materiales (nombre, metros_disponibles, precio, imagen) VALUES (?, ?, ?, ?)';
+    const sql = 'INSERT INTO Materiales (nombre, metros_disponibles, precio, imagen, estado) VALUES (?, ?, ?, ?, 1)';
     pool.query(sql, [nombre, metros_disponibles, precio, imagenPath], (err, results) => {
         if (err) {
             console.error('Error al insertar Material:', err);
@@ -79,9 +78,15 @@ app.post('/api/materiales', upload.single('imagen'), (req, res) => {
     });
 });
 
-// Obtener materiales con imagen
 app.get('/api/materiales', (req, res) => {
-    const sql = 'SELECT id_material, nombre, metros_disponibles, precio, imagen AS imagen_url FROM Materiales';
+    const { activos } = req.query;
+    let sql = 'SELECT id_material, nombre, metros_disponibles, precio, imagen AS imagen_url, estado FROM Materiales';
+
+    
+    if (activos === 'true') {
+        sql += ' WHERE estado = 1';
+    }
+
     pool.query(sql, (err, results) => {
         if (err) {
             console.error('Error al obtener materiales:', err);
@@ -95,6 +100,7 @@ app.get('/api/materiales', (req, res) => {
         res.json(materiales);
     });
 });
+
 
 // Editar un material
 app.put('/api/materiales/:id', (req, res) => {
@@ -113,6 +119,20 @@ app.put('/api/materiales/:id', (req, res) => {
         }
 
         res.json({ message: 'Material actualizado correctamente' });
+    });
+});
+
+// Actualizar el estado de un material
+app.put('/api/materiales/:id/estado', (req, res) => {
+    const { id } = req.params;
+    const { estado } = req.body;
+    const sql = 'UPDATE Materiales SET estado = ? WHERE id_material = ?';
+    pool.query(sql, [estado, id], (err, result) => {
+        if (err) {
+            console.error('Error al actualizar estado del material:', err);
+            return res.status(500).json({ error: 'Error en el servidor' });
+        }
+        res.json({ message: 'Estado del material actualizado correctamente' });
     });
 });
 
@@ -144,13 +164,10 @@ app.delete('/api/materiales/:id', async (req, res) => {
     }
 });
 
-
-// Endpoint para obtener movimientos con el nombre del administrador
-
-// Endpoint para obtener movimientos con ajuste de zona horaria
-const moment = require('moment-timezone');
+// Obtener movimientos con  zona horaria
 app.get('/api/movimientos', (req, res) => {
-    const { timeZone } = req.query; // Recibe la zona horaria del usuario desde el frontend
+    const { timeZone } = req.query || 'America/Phoenix';
+
     const sql = `
       SELECT 
         MovimientosInventario.*, 
@@ -165,33 +182,28 @@ app.get('/api/movimientos', (req, res) => {
       ORDER BY 
         MovimientosInventario.fecha_movimiento DESC
     `;
-    
+
     pool.query(sql, (err, results) => {
       if (err) {
         console.error('Error al obtener historial de movimientos:', err);
         return res.status(500).json({ error: 'Error en el servidor al obtener historial de movimientos', details: err.message });
       }
-  
-      // Ajustar la fecha de cada movimiento a la zona horaria del usuario
+
+   
       const adjustedResults = results.map((movimiento) => ({
         ...movimiento,
         fecha_movimiento: movimiento.fecha_movimiento 
-          ? moment(movimiento.fecha_movimiento).tz(timeZone || 'America/Mexico_City').format('YYYY-MM-DD HH:mm:ss')
+          ? moment(movimiento.fecha_movimiento).subtract(1, 'days').format('YYYY-MM-DD HH:mm:ss')
           : 'Fecha no disponible'
       }));
-  
+
       res.json(adjustedResults);
     });
-  });
-  
+});
 
-
-
-// Agregar un nuevo movimiento
 app.post('/api/movimientos', async (req, res) => {
     const { id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin } = req.body;
 
-    // Validación de campos
     if (!id_material || !tipo_movimiento || !cantidad || !fecha_movimiento || !descripcion || !id_Admin) {
         return res.status(400).json({ error: 'Todos los campos son obligatorios, incluyendo id_Admin.' });
     }
@@ -200,7 +212,6 @@ app.post('/api/movimientos', async (req, res) => {
     await connection.beginTransaction();
 
     try {
-        // Primero, obtenemos el stock actual del material
         const [material] = await connection.query('SELECT metros_disponibles FROM Materiales WHERE id_material = ?', [id_material]);
         
         if (!material.length) {
@@ -209,7 +220,6 @@ app.post('/api/movimientos', async (req, res) => {
 
         const metrosDisponibles = material[0].metros_disponibles;
 
-        // Si es un movimiento de salida, comprobamos el stock
         if (tipo_movimiento === 'salida') {
             if (metrosDisponibles === 0) {
                 return res.status(400).json({ error: 'No hay stock disponible.' });
@@ -218,7 +228,6 @@ app.post('/api/movimientos', async (req, res) => {
             }
         }
 
-        // Procesa el movimiento
         const sqlInsert = 'INSERT INTO MovimientosInventario (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) VALUES (?, ?, ?, ?, ?, ?)';
         await connection.query(sqlInsert, [id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin]);
 
@@ -239,8 +248,6 @@ app.post('/api/movimientos', async (req, res) => {
     }
 });
 
-
-// Iniciar el servidor
 app.listen(port, () => {
     console.log(`Servidor corriendo en el puerto: ${port}`);
 });
