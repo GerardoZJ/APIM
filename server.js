@@ -15,7 +15,7 @@ app.use('/uploads', express.static('uploads'));
 const pool = mysql.createPool({
     host: 'srv1247.hstgr.io',
     user: 'u475816193_Inventario',
-    password: 'Materiales123@',
+    password: 'Basededatos1',
     database: 'u475816193_Inventario',
     waitForConnections: true,
     connectionLimit: 10,
