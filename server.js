@@ -2,11 +2,18 @@ const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const multer = require('multer');
-const path = require('path');
 const moment = require('moment-timezone'); 
 
 const app = express();
 const port = 3000;
+const fs = require('fs');
+const path = require('path');
+
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
 
 app.use(express.json());
 app.use(cors());
