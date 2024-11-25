@@ -73,7 +73,7 @@ app.post('/api/materiales', upload.single('imagen'), (req, res) => {
             nombre,
             metros_disponibles,
             precio,
-            imagen_url: `http://localhost:3000${imagenPath}`
+            imagen_url: `https://apim-dg8z.onrender.com${imagenPath}`
         });
     });
 });
@@ -95,7 +95,7 @@ app.get('/api/materiales', (req, res) => {
 
         const materiales = results.map(material => ({
             ...material,
-            imagen_url: material.imagen_url ? `http://localhost:3000${material.imagen_url}` : null
+            imagen_url: material.imagen_url ? `https://apim-dg8z.onrender.com${material.imagen_url}` : null
         }));
         res.json(materiales);
     });
