@@ -2,11 +2,18 @@ const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const multer = require('multer');
-const path = require('path');
 const moment = require('moment-timezone'); 
 
 const app = express();
 const port = 3000;
+const fs = require('fs');
+const path = require('path');
+
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
 
 app.use(express.json());
 app.use(cors());
@@ -73,7 +80,7 @@ app.post('/api/materiales', upload.single('imagen'), (req, res) => {
             nombre,
             metros_disponibles,
             precio,
-            imagen_url: `http://localhost:3000${imagenPath}`
+            imagen_url: `https://apim-dg8z.onrender.com${imagenPath}`
         });
     });
 });
@@ -95,7 +102,7 @@ app.get('/api/materiales', (req, res) => {
 
         const materiales = results.map(material => ({
             ...material,
-            imagen_url: material.imagen_url ? `http://localhost:3000${material.imagen_url}` : null
+            imagen_url: material.imagen_url ? `https://apim-dg8z.onrender.com${material.imagen_url}` : null
         }));
         res.json(materiales);
     });
