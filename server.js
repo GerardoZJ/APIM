@@ -3,6 +3,13 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const multer = require('multer');
 const moment = require('moment-timezone'); 
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 
 const app = express();
 const port = 3000;
@@ -209,52 +216,69 @@ app.get('/api/movimientos', (req, res) => {
 });
 
 app.post('/api/movimientos', async (req, res) => {
-    const { id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin } = req.body;
+    console.log("Datos recibidos:", req.body);
+    const { id_material, tipo_movimiento, cantidad, descripcion, id_Admin } = req.body;
 
-    if (!id_material || !tipo_movimiento || !cantidad || !fecha_movimiento || !descripcion || !id_Admin) {
-        return res.status(400).json({ error: 'Todos los campos son obligatorios, incluyendo id_Admin.' });
+    if (!id_material || !tipo_movimiento || !cantidad || !id_Admin) {
+        return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
     }
+
+    const fechaMovimiento = dayjs().tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss');
+    console.log('Fecha generada con dayjs:', fechaMovimiento);
 
     const connection = await pool.promise().getConnection();
     await connection.beginTransaction();
 
     try {
-        const [material] = await connection.query('SELECT metros_disponibles FROM Materiales WHERE id_material = ?', [id_material]);
-        
+        const [material] = await connection.query(
+            'SELECT metros_disponibles FROM Materiales WHERE id_material = ?',
+            [id_material]
+        );
+
         if (!material.length) {
             throw new Error('Material no encontrado');
         }
 
         const metrosDisponibles = material[0].metros_disponibles;
 
-        if (tipo_movimiento === 'salida') {
-            if (metrosDisponibles === 0) {
-                return res.status(400).json({ error: 'No hay stock disponible.' });
-            } else if (metrosDisponibles < cantidad) {
-                return res.status(400).json({ error: 'Productos insuficientes en stock.' });
-            }
+        if (tipo_movimiento === 'salida' && metrosDisponibles < cantidad) {
+            throw new Error('Stock insuficiente');
         }
 
-        const sqlInsert = 'INSERT INTO MovimientosInventario (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) VALUES (?, ?, ?, ?, ?, ?)';
-        await connection.query(sqlInsert, [id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin]);
+        const sqlInsert = `
+            INSERT INTO MovimientosInventario 
+            (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) 
+            VALUES (?, ?, ?, ?, ?, ?)
+        `;
+        await connection.query(sqlInsert, [
+            id_material,
+            tipo_movimiento,
+            cantidad,
+            fechaMovimiento,
+            descripcion,
+            id_Admin,
+        ]);
 
-        const sqlUpdate = tipo_movimiento === 'entrada' 
-            ? 'UPDATE Materiales SET metros_disponibles = metros_disponibles + ? WHERE id_material = ?'
-            : 'UPDATE Materiales SET metros_disponibles = metros_disponibles - ? WHERE id_material = ?';
+        const sqlUpdate =
+            tipo_movimiento === 'entrada'
+                ? 'UPDATE Materiales SET metros_disponibles = metros_disponibles + ? WHERE id_material = ?'
+                : 'UPDATE Materiales SET metros_disponibles = metros_disponibles - ? WHERE id_material = ?';
 
         await connection.query(sqlUpdate, [cantidad, id_material]);
 
         await connection.commit();
-        res.status(201).json({ message: 'Movimiento registrado exitosamente' });
+        res.status(201).json({ message: 'Movimiento registrado correctamente' });
     } catch (error) {
         await connection.rollback();
-        console.error('Error al registrar movimiento:', error);
-        res.status(500).json({ error: 'Error en el servidor al registrar movimiento', details: error.message });
+        console.error('Error al registrar movimiento:', error.message);
+        res.status(500).json({ error: 'Error en el servidor', details: error.message });
     } finally {
         connection.release();
     }
 });
 
+
 app.listen(port, () => {
     console.log(`Servidor corriendo en el puerto: ${port}`);
 });
+
