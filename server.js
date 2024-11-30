@@ -87,7 +87,7 @@ app.post('/api/materiales', upload.single('imagen'), (req, res) => {
             nombre,
             metros_disponibles,
             precio,
-            imagen_url: `https://apim-dg8z.onrender.com${imagenPath}`
+            imagen_url: `https://apim-dg8z.onrender.com/${imagenPath}`
         });
     });
 });
@@ -109,14 +109,14 @@ app.get('/api/materiales', (req, res) => {
 
         const materiales = results.map(material => ({
             ...material,
-            imagen_url: material.imagen_url ? `https://apim-dg8z.onrender.com${material.imagen_url}` : null
+            imagen_url: material.imagen_url ? `https://apim-dg8z.onrender.com/${material.imagen_url}` : null
         }));
         res.json(materiales);
     });
 });
 
 
-// Editar un material
+
 app.put('/api/materiales/:id', (req, res) => {
     const { id } = req.params;
     const { nombre, metros_disponibles, precio } = req.body;
@@ -136,7 +136,7 @@ app.put('/api/materiales/:id', (req, res) => {
     });
 });
 
-// Actualizar el estado de un material
+
 app.put('/api/materiales/:id/estado', (req, res) => {
     const { id } = req.params;
     const { estado } = req.body;
@@ -150,7 +150,7 @@ app.put('/api/materiales/:id/estado', (req, res) => {
     });
 });
 
-// Eliminar material con eliminación de movimientos asociados
+
 app.delete('/api/materiales/:id', async (req, res) => {
     const { id } = req.params;
     const connection = await pool.promise().getConnection();
@@ -178,40 +178,37 @@ app.delete('/api/materiales/:id', async (req, res) => {
     }
 });
 
-// Obtener movimientos con  zona horaria
-app.get('/api/movimientos', (req, res) => {
-    const { timeZone } = req.query || 'America/Phoenix';
 
+app.get('/api/movimientos', (req, res) => {
     const sql = `
-      SELECT 
-        MovimientosInventario.*, 
-        Materiales.nombre AS nombre_material,
-        Administrador.Usuario AS nombre_admin 
-      FROM 
-        MovimientosInventario 
-      LEFT JOIN 
-        Materiales ON MovimientosInventario.id_material = Materiales.id_material
-      LEFT JOIN 
-        Administrador ON MovimientosInventario.id_Admin = Administrador.id_Admin 
-      ORDER BY 
-        MovimientosInventario.fecha_movimiento DESC
+        SELECT 
+            MovimientosInventario.*, 
+            Materiales.nombre AS nombre_material,
+            Administrador.Usuario AS nombre_admin 
+        FROM 
+            MovimientosInventario 
+        LEFT JOIN 
+            Materiales ON MovimientosInventario.id_material = Materiales.id_material
+        LEFT JOIN 
+            Administrador ON MovimientosInventario.id_Admin = Administrador.id_Admin 
+        ORDER BY 
+            MovimientosInventario.fecha_movimiento DESC
     `;
 
     pool.query(sql, (err, results) => {
-      if (err) {
-        console.error('Error al obtener historial de movimientos:', err);
-        return res.status(500).json({ error: 'Error en el servidor al obtener historial de movimientos', details: err.message });
-      }
+        if (err) {
+            console.error('Error al obtener historial de movimientos:', err);
+            return res.status(500).json({ error: 'Error en el servidor al obtener historial de movimientos', details: err.message });
+        }
 
-   
-      const adjustedResults = results.map((movimiento) => ({
-        ...movimiento,
-        fecha_movimiento: movimiento.fecha_movimiento 
-          ? moment(movimiento.fecha_movimiento).subtract(1, 'days').format('YYYY-MM-DD HH:mm:ss')
-          : 'Fecha no disponible'
-      }));
+        const adjustedResults = results.map((movimiento) => ({
+            ...movimiento,
+            fecha_movimiento: movimiento.fecha_movimiento
+                ? dayjs(movimiento.fecha_movimiento).tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss')
+                : 'Fecha no disponible'
+        }));
 
-      res.json(adjustedResults);
+        res.json(adjustedResults);
     });
 });
 
@@ -223,8 +220,10 @@ app.post('/api/movimientos', async (req, res) => {
         return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
     }
 
-    const fechaMovimiento = dayjs().tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss');
-    console.log('Fecha generada con dayjs:', fechaMovimiento);
+
+const fechaMovimiento = dayjs().tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss');
+console.log('Fecha generada con dayjs:', fechaMovimiento);
+
 
     const connection = await pool.promise().getConnection();
     await connection.beginTransaction();
@@ -246,18 +245,19 @@ app.post('/api/movimientos', async (req, res) => {
         }
 
         const sqlInsert = `
-            INSERT INTO MovimientosInventario 
-            (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) 
-            VALUES (?, ?, ?, ?, ?, ?)
-        `;
-        await connection.query(sqlInsert, [
-            id_material,
-            tipo_movimiento,
-            cantidad,
-            fechaMovimiento,
-            descripcion,
-            id_Admin,
-        ]);
+        INSERT INTO MovimientosInventario 
+        (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) 
+        VALUES (?, ?, ?, ?, ?, ?)
+    `;
+    await connection.query(sqlInsert, [
+        id_material,
+        tipo_movimiento,
+        cantidad,
+        fechaMovimiento, 
+        descripcion,
+        id_Admin,
+    ]);
+    
 
         const sqlUpdate =
             tipo_movimiento === 'entrada'
