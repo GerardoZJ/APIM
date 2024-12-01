@@ -69,7 +69,7 @@ app.post('/login', (req, res) => {
     });
 });
 
-// agregar materiales con imagen y estado por defecto en activo (1)
+
 app.post('/api/materiales', upload.single('imagen'), (req, res) => {
     const { nombre, metros_disponibles, precio } = req.body;
     const imagenPath = req.file ? `/uploads/${req.file.filename}` : null;
@@ -87,7 +87,7 @@ app.post('/api/materiales', upload.single('imagen'), (req, res) => {
             nombre,
             metros_disponibles,
             precio,
-            imagen_url: `https://apim-dg8z.onrender.com/${imagenPath}`
+            imagen_url: `https://apim-dg8z.onrender.com${imagenPath}`
         });
     });
 });
@@ -109,7 +109,7 @@ app.get('/api/materiales', (req, res) => {
 
         const materiales = results.map(material => ({
             ...material,
-            imagen_url: material.imagen_url ? `https://apim-dg8z.onrender.com/${material.imagen_url}` : null
+            imagen_url: material.imagen_url ? `https://apim-dg8z.onrender.com${material.imagen_url}` : null
         }));
         res.json(materiales);
     });
@@ -117,24 +117,47 @@ app.get('/api/materiales', (req, res) => {
 
 
 
-app.put('/api/materiales/:id', (req, res) => {
+app.put('/api/materiales/:id', upload.single('imagen'), (req, res) => {
     const { id } = req.params;
     const { nombre, metros_disponibles, precio } = req.body;
+    const imagenPath = req.file ? `/uploads/${req.file.filename}` : null;
+  
+    if (!nombre || metros_disponibles == null || precio == null) {
+      return res.status(400).json({ error: 'Nombre, metros disponibles y precio son obligatorios.' });
+    }
+  
+    let sql = 'UPDATE Materiales SET nombre = ?, metros_disponibles = ?, precio = ?';
+    const params = [nombre, metros_disponibles, precio];
+  
 
-    const sql = 'UPDATE Materiales SET nombre = ?, metros_disponibles = ?, precio = ? WHERE id_material = ?';
-    pool.query(sql, [nombre, metros_disponibles, precio, id], (err, results) => {
-        if (err) {
-            console.error('Error al actualizar material:', err);
-            return res.status(500).json({ error: 'Error en el servidor' });
-        }
-
-        if (results.affectedRows === 0) {
-            return res.status(404).json({ error: "Material no encontrado" });
-        }
-
-        res.json({ message: 'Material actualizado correctamente' });
+    if (imagenPath) {
+      sql += ', imagen = ?';
+      params.push(imagenPath);
+    }
+  
+    sql += ' WHERE id_material = ?';
+    params.push(id);
+  
+    pool.query(sql, params, (err, results) => {
+      if (err) {
+        console.error('Error al actualizar material:', err);
+        return res.status(500).json({ error: 'Error en el servidor' });
+      }
+  
+      if (results.affectedRows === 0) {
+        return res.status(404).json({ error: 'Material no encontrado' });
+      }
+  
+      res.json({
+        message: 'Material actualizado correctamente',
+        nombre,
+        metros_disponibles,
+        precio,
+        ...(imagenPath && { imagen_url: `https://apim-dg8z.onrender.com${imagenPath}` }),
+      });
     });
-});
+  });
+  
 
 
 app.put('/api/materiales/:id/estado', (req, res) => {
@@ -220,15 +243,14 @@ app.post('/api/movimientos', async (req, res) => {
         return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
     }
 
-
-const fechaMovimiento = dayjs().tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss');
-console.log('Fecha generada con dayjs:', fechaMovimiento);
-
+    const fechaMovimiento = dayjs().tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss');
+    console.log('Fecha generada con dayjs:', fechaMovimiento);
 
     const connection = await pool.promise().getConnection();
     await connection.beginTransaction();
 
     try {
+        
         const [material] = await connection.query(
             'SELECT metros_disponibles FROM Materiales WHERE id_material = ?',
             [id_material]
@@ -238,33 +260,35 @@ console.log('Fecha generada con dayjs:', fechaMovimiento);
             throw new Error('Material no encontrado');
         }
 
-        const metrosDisponibles = material[0].metros_disponibles;
+        const metrosDisponibles = parseFloat(material[0].metros_disponibles); 
+        const cantidadMovimiento = parseFloat(cantidad); 
 
-        if (tipo_movimiento === 'salida' && metrosDisponibles < cantidad) {
-            throw new Error('Stock insuficiente');
+       
+        if (tipo_movimiento === 'salida' && metrosDisponibles < cantidadMovimiento) {
+            throw new Error(`Stock insuficiente. Disponible: ${metrosDisponibles} metros.`);
         }
 
         const sqlInsert = `
-        INSERT INTO MovimientosInventario 
-        (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) 
-        VALUES (?, ?, ?, ?, ?, ?)
-    `;
-    await connection.query(sqlInsert, [
-        id_material,
-        tipo_movimiento,
-        cantidad,
-        fechaMovimiento, 
-        descripcion,
-        id_Admin,
-    ]);
-    
+            INSERT INTO MovimientosInventario 
+            (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) 
+            VALUES (?, ?, ?, ?, ?, ?)
+        `;
+        await connection.query(sqlInsert, [
+            id_material,
+            tipo_movimiento,
+            cantidadMovimiento,
+            fechaMovimiento,
+            descripcion,
+            id_Admin,
+        ]);
 
+      
         const sqlUpdate =
             tipo_movimiento === 'entrada'
                 ? 'UPDATE Materiales SET metros_disponibles = metros_disponibles + ? WHERE id_material = ?'
                 : 'UPDATE Materiales SET metros_disponibles = metros_disponibles - ? WHERE id_material = ?';
 
-        await connection.query(sqlUpdate, [cantidad, id_material]);
+        await connection.query(sqlUpdate, [cantidadMovimiento, id_material]);
 
         await connection.commit();
         res.status(201).json({ message: 'Movimiento registrado correctamente' });
