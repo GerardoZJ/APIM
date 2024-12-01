@@ -220,15 +220,14 @@ app.post('/api/movimientos', async (req, res) => {
         return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
     }
 
-
-const fechaMovimiento = dayjs().tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss');
-console.log('Fecha generada con dayjs:', fechaMovimiento);
-
+    const fechaMovimiento = dayjs().tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss');
+    console.log('Fecha generada con dayjs:', fechaMovimiento);
 
     const connection = await pool.promise().getConnection();
     await connection.beginTransaction();
 
     try {
+        // Obtener metros disponibles del material seleccionado
         const [material] = await connection.query(
             'SELECT metros_disponibles FROM Materiales WHERE id_material = ?',
             [id_material]
@@ -238,33 +237,41 @@ console.log('Fecha generada con dayjs:', fechaMovimiento);
             throw new Error('Material no encontrado');
         }
 
-        const metrosDisponibles = material[0].metros_disponibles;
+        const metrosDisponibles = parseFloat(material[0].metros_disponibles);
+        const cantidadMovimiento = parseFloat(cantidad);
+        
+        if (tipo_movimiento === 'salida' && metrosDisponibles < cantidadMovimiento) {
+            throw new Error(`Stock insuficiente. Disponible: ${metrosDisponibles} metros.`);
+        }
+        
 
-        if (tipo_movimiento === 'salida' && metrosDisponibles < cantidad) {
-            throw new Error('Stock insuficiente');
+        // Validar stock suficiente para salida
+        if (tipo_movimiento === 'salida' && metrosDisponibles < cantidadMovimiento) {
+            throw new Error(`Stock insuficiente. Disponible: ${metrosDisponibles} metros.`);
         }
 
+        // Registrar el movimiento
         const sqlInsert = `
-        INSERT INTO MovimientosInventario 
-        (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) 
-        VALUES (?, ?, ?, ?, ?, ?)
-    `;
-    await connection.query(sqlInsert, [
-        id_material,
-        tipo_movimiento,
-        cantidad,
-        fechaMovimiento, 
-        descripcion,
-        id_Admin,
-    ]);
-    
+            INSERT INTO MovimientosInventario 
+            (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) 
+            VALUES (?, ?, ?, ?, ?, ?)
+        `;
+        await connection.query(sqlInsert, [
+            id_material,
+            tipo_movimiento,
+            cantidadMovimiento,
+            fechaMovimiento,
+            descripcion,
+            id_Admin,
+        ]);
 
+        // Actualizar metros disponibles
         const sqlUpdate =
             tipo_movimiento === 'entrada'
                 ? 'UPDATE Materiales SET metros_disponibles = metros_disponibles + ? WHERE id_material = ?'
                 : 'UPDATE Materiales SET metros_disponibles = metros_disponibles - ? WHERE id_material = ?';
 
-        await connection.query(sqlUpdate, [cantidad, id_material]);
+        await connection.query(sqlUpdate, [cantidadMovimiento, id_material]);
 
         await connection.commit();
         res.status(201).json({ message: 'Movimiento registrado correctamente' });
@@ -276,6 +283,7 @@ console.log('Fecha generada con dayjs:', fechaMovimiento);
         connection.release();
     }
 });
+
 
 
 app.listen(port, () => {
