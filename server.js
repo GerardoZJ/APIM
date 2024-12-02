@@ -55,6 +55,30 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+//  login
+app.post('/login', (req, res) => {
+    const { Usuario, contraseña } = req.body;
+
+    if (!Usuario || !contraseña) {
+        return res.status(400).json({ error: 'Usuario y contraseña son obligatorios' });
+    }
+
+    const sql = 'SELECT * FROM Administrador WHERE Usuario = ? AND contraseña = ?';
+    pool.query(sql, [Usuario, contraseña], (err, results) => {
+        if (err) {
+            console.error('Error al verificar el usuario:', err.message);
+            return res.status(500).json({ error: 'Error en el servidor', details: err.message });
+        }
+
+        if (results.length > 0) {
+            res.json({ message: 'Login exitoso', user: results[0] });
+        } else {
+            res.status(401).json({ error: 'Credenciales incorrectas' });
+        }
+    });
+});
+
+
 // Endpoint para subir material
 app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
     const { nombre, metros_disponibles, precio } = req.body;
