@@ -2,13 +2,10 @@ const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const multer = require('multer');
-const moment = require('moment-timezone'); 
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
-const cloudinary = require('cloudinary').v2; 
-const fs = require('fs');
-const path = require('path');
+const cloudinary = require('cloudinary').v2;
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -28,10 +25,9 @@ try {
     console.error("Error al configurar Cloudinary:", error);
 }
 
-// Configurar middleware
+// Configuración de middleware
 app.use(express.json());
 app.use(cors());
-app.use('/uploads', express.static('uploads'));
 
 // Configuración de conexión a MySQL
 const pool = mysql.createPool({
@@ -44,18 +40,13 @@ const pool = mysql.createPool({
     queueLimit: 0,
 });
 
-// Configuración de Multer
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'uploads/');
-    },
-    filename: (req, file, cb) => {
-        cb(null, Date.now() + path.extname(file.originalname));
-    },
-});
+// Configuración de Multer para almacenamiento en memoria
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-//  login
+// *** Endpoints ***
+
+// Login
 app.post('/login', (req, res) => {
     const { Usuario, contraseña } = req.body;
 
@@ -78,7 +69,7 @@ app.post('/login', (req, res) => {
     });
 });
 
-
+// Crear material
 app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
     const { nombre, metros_disponibles, precio } = req.body;
     let imagenUrl = null;
@@ -86,22 +77,19 @@ app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
     try {
         console.log("Datos recibidos:", { nombre, metros_disponibles, precio });
 
-        // Subir la imagen a Cloudinary
         if (req.file) {
-            console.log("Archivo recibido:", req.file);
-            const result = await cloudinary.uploader.upload(req.file.path, {
-                folder: 'materiales',
+            const result = await new Promise((resolve, reject) => {
+                cloudinary.uploader.upload_stream(
+                    { folder: 'materiales' },
+                    (err, result) => {
+                        if (err) reject(err);
+                        resolve(result);
+                    }
+                ).end(req.file.buffer);
             });
             imagenUrl = result.secure_url;
-            console.log("Imagen subida a Cloudinary:", imagenUrl);
-
-            // Eliminar el archivo local después de subirlo
-            fs.unlinkSync(req.file.path);
-        } else {
-            console.log("No se recibió archivo para subir.");
         }
 
-        // Guardar el material en la base de datos
         const sql = 'INSERT INTO Materiales (nombre, metros_disponibles, precio, imagen, estado) VALUES (?, ?, ?, ?, 1)';
         pool.query(sql, [nombre, metros_disponibles, precio, imagenUrl], (err, results) => {
             if (err) {
@@ -122,8 +110,7 @@ app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
     }
 });
 
-
-// Endpoint para obtener materiales
+// Obtener materiales
 app.get('/api/materiales', (req, res) => {
     const { activos } = req.query;
     let sql = 'SELECT id_material, nombre, metros_disponibles, precio, imagen AS imagen_url, estado FROM Materiales';
@@ -146,55 +133,60 @@ app.get('/api/materiales', (req, res) => {
     });
 });
 
-
-
-
-app.put('/api/materiales/:id', upload.single('imagen'), (req, res) => {
+// Actualizar material
+app.put('/api/materiales/:id', upload.single('imagen'), async (req, res) => {
     const { id } = req.params;
     const { nombre, metros_disponibles, precio } = req.body;
-    const imagenPath = req.file ? `/uploads/${req.file.filename}` : null;
-  
-    if (!nombre || metros_disponibles == null || precio == null) {
-      return res.status(400).json({ error: 'Nombre, metros disponibles y precio son obligatorios.' });
+    let imagenUrl = null;
+
+    try {
+        if (req.file) {
+            const result = await new Promise((resolve, reject) => {
+                cloudinary.uploader.upload_stream(
+                    { folder: 'materiales' },
+                    (err, result) => {
+                        if (err) reject(err);
+                        resolve(result);
+                    }
+                ).end(req.file.buffer);
+            });
+            imagenUrl = result.secure_url;
+        }
+
+        let sql = 'UPDATE Materiales SET nombre = ?, metros_disponibles = ?, precio = ?';
+        const params = [nombre, metros_disponibles, precio];
+
+        if (imagenUrl) {
+            sql += ', imagen = ?';
+            params.push(imagenUrl);
+        }
+
+        sql += ' WHERE id_material = ?';
+        params.push(id);
+
+        pool.query(sql, params, (err, results) => {
+            if (err) {
+                console.error('Error al actualizar material:', err);
+                return res.status(500).json({ error: 'Error en el servidor' });
+            }
+
+            if (results.affectedRows === 0) {
+                return res.status(404).json({ error: 'Material no encontrado' });
+            }
+
+            res.json({ message: 'Material actualizado correctamente' });
+        });
+    } catch (error) {
+        console.error('Error al procesar la solicitud:', error);
+        res.status(500).json({ error: 'Error interno del servidor', details: error.message });
     }
-  
-    let sql = 'UPDATE Materiales SET nombre = ?, metros_disponibles = ?, precio = ?';
-    const params = [nombre, metros_disponibles, precio];
-  
+});
 
-    if (imagenPath) {
-      sql += ', imagen = ?';
-      params.push(imagenPath);
-    }
-  
-    sql += ' WHERE id_material = ?';
-    params.push(id);
-  
-    pool.query(sql, params, (err, results) => {
-      if (err) {
-        console.error('Error al actualizar material:', err);
-        return res.status(500).json({ error: 'Error en el servidor' });
-      }
-  
-      if (results.affectedRows === 0) {
-        return res.status(404).json({ error: 'Material no encontrado' });
-      }
-  
-      res.json({
-        message: 'Material actualizado correctamente',
-        nombre,
-        metros_disponibles,
-        precio,
-        ...(imagenPath && { imagen_url: `https://apim-dg8z.onrender.com${imagenPath}` }),
-      });
-    });
-  });
-  
-
-
+// Cambiar estado de material
 app.put('/api/materiales/:id/estado', (req, res) => {
     const { id } = req.params;
     const { estado } = req.body;
+
     const sql = 'UPDATE Materiales SET estado = ? WHERE id_material = ?';
     pool.query(sql, [estado, id], (err, result) => {
         if (err) {
@@ -205,7 +197,7 @@ app.put('/api/materiales/:id/estado', (req, res) => {
     });
 });
 
-
+// Eliminar material
 app.delete('/api/materiales/:id', async (req, res) => {
     const { id } = req.params;
     const connection = await pool.promise().getConnection();
@@ -233,7 +225,7 @@ app.delete('/api/materiales/:id', async (req, res) => {
     }
 });
 
-
+// Obtener movimientos
 app.get('/api/movimientos', (req, res) => {
     const sql = `
         SELECT 
@@ -252,37 +244,30 @@ app.get('/api/movimientos', (req, res) => {
 
     pool.query(sql, (err, results) => {
         if (err) {
-            console.error('Error al obtener historial de movimientos:', err);
-            return res.status(500).json({ error: 'Error en el servidor al obtener historial de movimientos', details: err.message });
+            console.error('Error al obtener movimientos:', err);
+            return res.status(500).json({ error: 'Error en el servidor' });
         }
 
-        const adjustedResults = results.map((movimiento) => ({
+        const movimientos = results.map((movimiento) => ({
             ...movimiento,
-            fecha_movimiento: movimiento.fecha_movimiento
-                ? dayjs(movimiento.fecha_movimiento).tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss')
-                : 'Fecha no disponible'
+            fecha_movimiento: dayjs(movimiento.fecha_movimiento).tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss'),
         }));
-
-        res.json(adjustedResults);
+        res.json(movimientos);
     });
 });
 
+// Crear movimiento
 app.post('/api/movimientos', async (req, res) => {
-    console.log("Datos recibidos:", req.body);
     const { id_material, tipo_movimiento, cantidad, descripcion, id_Admin } = req.body;
 
     if (!id_material || !tipo_movimiento || !cantidad || !id_Admin) {
         return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
     }
 
-    const fechaMovimiento = dayjs().tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss');
-    console.log('Fecha generada con dayjs:', fechaMovimiento);
-
     const connection = await pool.promise().getConnection();
     await connection.beginTransaction();
 
     try {
-        
         const [material] = await connection.query(
             'SELECT metros_disponibles FROM Materiales WHERE id_material = ?',
             [id_material]
@@ -293,9 +278,8 @@ app.post('/api/movimientos', async (req, res) => {
         }
 
         const metrosDisponibles = parseFloat(material[0].metros_disponibles); 
-        const cantidadMovimiento = parseFloat(cantidad); 
+        const cantidadMovimiento = parseFloat(cantidad);
 
-       
         if (tipo_movimiento === 'salida' && metrosDisponibles < cantidadMovimiento) {
             throw new Error(`Stock insuficiente. Disponible: ${metrosDisponibles} metros.`);
         }
@@ -305,6 +289,7 @@ app.post('/api/movimientos', async (req, res) => {
             (id_material, tipo_movimiento, cantidad, fecha_movimiento, descripcion, id_Admin) 
             VALUES (?, ?, ?, ?, ?, ?)
         `;
+        const fechaMovimiento = dayjs().tz('America/Mexico_City').format('YYYY-MM-DD HH:mm:ss');
         await connection.query(sqlInsert, [
             id_material,
             tipo_movimiento,
@@ -314,7 +299,6 @@ app.post('/api/movimientos', async (req, res) => {
             id_Admin,
         ]);
 
-      
         const sqlUpdate =
             tipo_movimiento === 'entrada'
                 ? 'UPDATE Materiales SET metros_disponibles = metros_disponibles + ? WHERE id_material = ?'
@@ -333,8 +317,7 @@ app.post('/api/movimientos', async (req, res) => {
     }
 });
 
-
+// Servidor
 app.listen(port, () => {
     console.log(`Servidor corriendo en el puerto: ${port}`);
 });
-
