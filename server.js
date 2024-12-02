@@ -7,31 +7,33 @@ const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const cloudinary = require('cloudinary').v2; 
+const fs = require('fs');
+const path = require('path');
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-
 const app = express();
 const port = 3000;
-const fs = require('fs');
-const path = require('path');
 
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
+// Configurar Cloudinary
+try {
+    cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
+    console.log("Cloudinary configurado correctamente");
+} catch (error) {
+    console.error("Error al configurar Cloudinary:", error);
 }
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
-});
 
-
+// Configurar middleware
 app.use(express.json());
 app.use(cors());
 app.use('/uploads', express.static('uploads'));
 
+// Configuración de conexión a MySQL
 const pool = mysql.createPool({
     host: 'srv1247.hstgr.io',
     user: 'u475816193_Inventario',
@@ -39,57 +41,34 @@ const pool = mysql.createPool({
     database: 'u475816193_Inventario',
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
 });
 
+// Configuración de Multer
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, 'uploads/');
     },
     filename: (req, file, cb) => {
         cb(null, Date.now() + path.extname(file.originalname));
-    }
+    },
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 
-//  login
-app.post('/login', (req, res) => {
-    const { Usuario, contraseña } = req.body;
-
-    if (!Usuario || !contraseña) {
-        return res.status(400).json({ error: 'Usuario y contraseña son obligatorios' });
-    }
-
-    const sql = 'SELECT * FROM Administrador WHERE Usuario = ? AND contraseña = ?';
-    pool.query(sql, [Usuario, contraseña], (err, results) => {
-        if (err) {
-            console.error('Error al verificar el usuario:', err.message);
-            return res.status(500).json({ error: 'Error en el servidor', details: err.message });
-        }
-
-        if (results.length > 0) {
-            res.json({ message: 'Login exitoso', user: results[0] });
-        } else {
-            res.status(401).json({ error: 'Credenciales incorrectas' });
-        }
-    });
-});
-
-
+// Endpoint para subir material
 app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
     const { nombre, metros_disponibles, precio } = req.body;
     let imagenUrl = null;
 
     try {
-        // Subir la imagen a Cloudinary
         if (req.file) {
             const result = await cloudinary.uploader.upload(req.file.path, {
-                folder: 'materiales' // Carpeta en Cloudinary
+                folder: 'materiales',
             });
             imagenUrl = result.secure_url;
+            fs.unlinkSync(req.file.path); // Eliminar archivo local
         }
 
-        // Guardar el material en la base de datos
         const sql = 'INSERT INTO Materiales (nombre, metros_disponibles, precio, imagen, estado) VALUES (?, ?, ?, ?, 1)';
         pool.query(sql, [nombre, metros_disponibles, precio, imagenUrl], (err, results) => {
             if (err) {
@@ -101,7 +80,7 @@ app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
                 nombre,
                 metros_disponibles,
                 precio,
-                imagen_url: imagenUrl
+                imagen_url: imagenUrl,
             });
         });
     } catch (error) {
@@ -110,11 +89,11 @@ app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
     }
 });
 
+// Endpoint para obtener materiales
 app.get('/api/materiales', (req, res) => {
     const { activos } = req.query;
     let sql = 'SELECT id_material, nombre, metros_disponibles, precio, imagen AS imagen_url, estado FROM Materiales';
 
-    
     if (activos === 'true') {
         sql += ' WHERE estado = 1';
     }
@@ -125,13 +104,14 @@ app.get('/api/materiales', (req, res) => {
             return res.status(500).json({ error: 'Error en el servidor' });
         }
 
-        const materiales = results.map(material => ({
+        const materiales = results.map((material) => ({
             ...material,
-            imagen_url: material.imagen_url ? `https://apim-dg8z.onrender.com${material.imagen_url}` : null
+            imagen_url: material.imagen_url || 'https://via.placeholder.com/150', // Imagen por defecto
         }));
         res.json(materiales);
     });
 });
+
 
 
 
