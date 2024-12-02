@@ -20,7 +20,11 @@ const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
 }
-
+cloudinary.config({
+    cloud_name: 'dxeicifhs', // Reemplaza con tu Cloud Name
+    api_key: '823929317122585',       // Reemplaza con tu API Key
+    api_secret: '3JIHwAhGcJAeQWjeSM-RPHt-jKk'  // Reemplaza con tu API Secret
+});
 
 app.use(express.json());
 app.use(cors());
@@ -70,26 +74,38 @@ app.post('/login', (req, res) => {
 });
 
 
-app.post('/api/materiales', upload.single('imagen'), (req, res) => {
+app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
     const { nombre, metros_disponibles, precio } = req.body;
-    const imagenPath = req.file ? `/uploads/${req.file.filename}` : null;
-    if (!nombre || metros_disponibles == null || precio == null) {
-        return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
-    }
-    const sql = 'INSERT INTO Materiales (nombre, metros_disponibles, precio, imagen, estado) VALUES (?, ?, ?, ?, 1)';
-    pool.query(sql, [nombre, metros_disponibles, precio, imagenPath], (err, results) => {
-        if (err) {
-            console.error('Error al insertar Material:', err);
-            return res.status(500).json({ error: 'Error en el servidor' });
+    let imagenUrl = null;
+
+    try {
+        // Subir la imagen a Cloudinary
+        if (req.file) {
+            const result = await cloudinary.uploader.upload(req.file.path, {
+                folder: 'materiales' // Carpeta en Cloudinary
+            });
+            imagenUrl = result.secure_url;
         }
-        res.status(201).json({
-            id_material: results.insertId,
-            nombre,
-            metros_disponibles,
-            precio,
-            imagen_url: `https://apim-dg8z.onrender.com${imagenPath}`
+
+        // Guardar el material en la base de datos
+        const sql = 'INSERT INTO Materiales (nombre, metros_disponibles, precio, imagen, estado) VALUES (?, ?, ?, ?, 1)';
+        pool.query(sql, [nombre, metros_disponibles, precio, imagenUrl], (err, results) => {
+            if (err) {
+                console.error('Error al insertar material:', err);
+                return res.status(500).json({ error: 'Error en el servidor' });
+            }
+            res.status(201).json({
+                id_material: results.insertId,
+                nombre,
+                metros_disponibles,
+                precio,
+                imagen_url: imagenUrl
+            });
         });
-    });
+    } catch (error) {
+        console.error('Error al subir imagen:', error);
+        res.status(500).json({ error: 'Error al subir la imagen' });
+    }
 });
 
 app.get('/api/materiales', (req, res) => {
@@ -305,4 +321,5 @@ app.post('/api/movimientos', async (req, res) => {
 app.listen(port, () => {
     console.log(`Servidor corriendo en el puerto: ${port}`);
 });
+
 
