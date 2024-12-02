@@ -1,0 +1,17 @@
+# Ignorar node_modules
+node_modules/
+
+# Ignorar carpetas de uploads locales
+uploads/
+
+# Ignorar claves privadas y configuraciones sensibles
+.env
+
+# Ignorar archivos de logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ignorar archivos del sistema
+.DS_Store
+Thumbs.db
