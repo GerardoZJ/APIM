@@ -22,18 +22,11 @@ if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
 }
 cloudinary.config({
-<<<<<<< HEAD
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-=======
-    cloud_name: 'dxeicifhs', // Reemplaza con tu Cloud Name
-    api_key: '823929317122585',       // Reemplaza con tu API Key
-    api_secret: '3JIHwAhGcJAeQWjeSM-RPHt-jKk'  // Reemplaza con tu API Secret
-});
->>>>>>> bd1ef6f90837e12b27475c4d164b55112dd30869
 
 app.use(express.json());
 app.use(cors());
@@ -330,5 +323,4 @@ app.post('/api/movimientos', async (req, res) => {
 app.listen(port, () => {
     console.log(`Servidor corriendo en el puerto: ${port}`);
 });
-
 
