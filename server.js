@@ -79,25 +79,34 @@ app.post('/login', (req, res) => {
 });
 
 
-// Endpoint para subir material
 app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
     const { nombre, metros_disponibles, precio } = req.body;
     let imagenUrl = null;
 
     try {
+        console.log("Datos recibidos:", { nombre, metros_disponibles, precio });
+
+        // Subir la imagen a Cloudinary
         if (req.file) {
+            console.log("Archivo recibido:", req.file);
             const result = await cloudinary.uploader.upload(req.file.path, {
                 folder: 'materiales',
             });
             imagenUrl = result.secure_url;
-            fs.unlinkSync(req.file.path); // Eliminar archivo local
+            console.log("Imagen subida a Cloudinary:", imagenUrl);
+
+            // Eliminar el archivo local después de subirlo
+            fs.unlinkSync(req.file.path);
+        } else {
+            console.log("No se recibió archivo para subir.");
         }
 
+        // Guardar el material en la base de datos
         const sql = 'INSERT INTO Materiales (nombre, metros_disponibles, precio, imagen, estado) VALUES (?, ?, ?, ?, 1)';
         pool.query(sql, [nombre, metros_disponibles, precio, imagenUrl], (err, results) => {
             if (err) {
-                console.error('Error al insertar material:', err);
-                return res.status(500).json({ error: 'Error en el servidor' });
+                console.error('Error al insertar material en la base de datos:', err);
+                return res.status(500).json({ error: 'Error al guardar el material en la base de datos' });
             }
             res.status(201).json({
                 id_material: results.insertId,
@@ -108,10 +117,11 @@ app.post('/api/materiales', upload.single('imagen'), async (req, res) => {
             });
         });
     } catch (error) {
-        console.error('Error al subir imagen:', error);
-        res.status(500).json({ error: 'Error al subir la imagen' });
+        console.error('Error al procesar la solicitud:', error);
+        res.status(500).json({ error: 'Error interno del servidor', details: error.message });
     }
 });
+
 
 // Endpoint para obtener materiales
 app.get('/api/materiales', (req, res) => {
